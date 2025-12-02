@@ -35,8 +35,8 @@
   var tw = typeof twcss.tw === 'function'
     ? twcss.tw
     : function () {
-        return Array.prototype.slice.call(arguments).filter(Boolean).join(' ');
-      };
+      return Array.prototype.slice.call(arguments).filter(Boolean).join(' ');
+    };
   var token = typeof twcss.token === 'function' ? twcss.token : function () { return ''; };
   var params = new URLSearchParams(global.location.search || '');
   var BRANCH_ID = params.get('branch') || params.get('branchId') || 'aqar';
@@ -268,6 +268,40 @@
     return lang && lang.toLowerCase().indexOf('ar') === 0 ? 'rtl' : 'ltr';
   }
 
+  function isIOSSafari() {
+    if (typeof navigator === 'undefined') return false;
+    var ua = navigator.userAgent || '';
+    var isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+    var isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|OPiOS|mercury/.test(ua);
+    return isIOS && isSafari;
+  }
+
+  function getPWASessionKey() {
+    return 'brocker:pwa:skip:session';
+  }
+
+  function isPWASkippedThisSession() {
+    if (!global.sessionStorage) return false;
+    try {
+      return global.sessionStorage.getItem(getPWASessionKey()) === 'true';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function setPWASkippedThisSession(skipped) {
+    if (!global.sessionStorage) return;
+    try {
+      if (skipped) {
+        global.sessionStorage.setItem(getPWASessionKey(), 'true');
+      } else {
+        global.sessionStorage.removeItem(getPWASessionKey());
+      }
+    } catch (e) {
+      console.warn('[Brocker PWA] Failed to set session skip state', e);
+    }
+  }
+
   function syncDocumentEnv(env) {
     if (!global.document) return;
     var root = global.document.documentElement;
@@ -441,61 +475,71 @@
     ctx.setState(function (db) {
       var current = db.state && db.state.pwa ? db.state.pwa : {};
       var merged = Object.assign({}, current, patch || {});
-      if (merged.installRequired && merged.installed) merged.showGate = false;
-      else if (merged.installRequired) merged.showGate = !merged.installed;
+
+      // Check session skip
+      var skippedThisSession = isPWASkippedThisSession();
+
+      if (merged.installRequired && merged.installed) {
+        merged.showGate = false;
+      } else if (merged.installRequired && !skippedThisSession) {
+        merged.showGate = !merged.installed;
+      } else {
+        merged.showGate = false;
+      }
+
       return Object.assign({}, db, { state: Object.assign({}, db.state, { pwa: merged }) });
     });
   }
 
-function setEnvLanguage(ctx, lang) {
-  if (!ctx) return;
-  var nextLang = lang || 'ar';
-  var dir = resolveDir(nextLang);
-
-  ctx.setState(function (db) {
-    return Object.assign({}, db, {
-      state: Object.assign({}, db.state, {
-        loading: true,
-        readyTables: [],
-        error: null
-      }),
-      data: Object.assign({}, db.data, {
-        listings: [],
-        units: [],
-        projects: [],
-        regions: [],
-        heroSlides: [],
-        unitTypes: [],
-        brokers: [],
-        unitFeatures: [],
-        unitMedia: [],
-        unitLayouts: [],
-        featureValues: []
-      })
-    });
-  });
-
-  setTimeout(function() {
-    var currentEnv = (ctx.database && ctx.database.env) || { lang: 'ar', theme: 'dark', dir: 'rtl' };
-    var nextEnv = Object.assign({}, currentEnv, { lang: nextLang, dir: dir });
-
-    persistPrefs(nextEnv);
-    syncDocumentEnv(nextEnv);
+  function setEnvLanguage(ctx, lang) {
+    if (!ctx) return;
+    var nextLang = lang || 'ar';
+    var dir = resolveDir(nextLang);
 
     ctx.setState(function (db) {
-      var updatedEnv = Object.assign({}, db.env, { lang: nextLang, dir: dir });
-      
-      if (db.data && Array.isArray(db.data.uiLabels)) {
-        updatedEnv = applyLabelMaps(updatedEnv, db.data.uiLabels);
-      }
-
-      return Object.assign({}, db, { env: updatedEnv });
+      return Object.assign({}, db, {
+        state: Object.assign({}, db.state, {
+          loading: true,
+          readyTables: [],
+          error: null
+        }),
+        data: Object.assign({}, db.data, {
+          listings: [],
+          units: [],
+          projects: [],
+          regions: [],
+          heroSlides: [],
+          unitTypes: [],
+          brokers: [],
+          unitFeatures: [],
+          unitMedia: [],
+          unitLayouts: [],
+          featureValues: []
+        })
+      });
     });
 
-    console.log('[Brocker PWA] Reloading data with new language:', nextLang);
-    reloadDataWithLanguage(ctx, nextLang);
-  }, 50);
-}
+    setTimeout(function () {
+      var currentEnv = (ctx.database && ctx.database.env) || { lang: 'ar', theme: 'dark', dir: 'rtl' };
+      var nextEnv = Object.assign({}, currentEnv, { lang: nextLang, dir: dir });
+
+      persistPrefs(nextEnv);
+      syncDocumentEnv(nextEnv);
+
+      ctx.setState(function (db) {
+        var updatedEnv = Object.assign({}, db.env, { lang: nextLang, dir: dir });
+
+        if (db.data && Array.isArray(db.data.uiLabels)) {
+          updatedEnv = applyLabelMaps(updatedEnv, db.data.uiLabels);
+        }
+
+        return Object.assign({}, db, { env: updatedEnv });
+      });
+
+      console.log('[Brocker PWA] Reloading data with new language:', nextLang);
+      reloadDataWithLanguage(ctx, nextLang);
+    }, 50);
+  }
 
   function setEnvTheme(ctx, theme) {
     if (!ctx) return;
@@ -605,7 +649,7 @@ function setEnvLanguage(ctx, lang) {
 
         if (!currentDb.state.auth || !currentDb.state.auth.isAuthenticated) {
           setToast(ctx, { kind: 'error', message: translate('toast.loginRequired', 'يجب تسجيل الدخول أولاً لإرسال استفسار.', null, currentDb) });
-          ctx.setState(function(db) {
+          ctx.setState(function (db) {
             return Object.assign({}, db, {
               state: Object.assign({}, db.state, {
                 auth: Object.assign({}, db.state.auth, {
@@ -656,7 +700,7 @@ function setEnvLanguage(ctx, lang) {
         };
         realtime.insert('inquiries', record, { reason: 'pwa-lead' })
           .then(function () {
-            try { form.reset(); } catch (_err) {}
+            try { form.reset(); } catch (_err) { }
             setToast(ctx, { kind: 'success', message: translate('toast.sent', 'تم إرسال طلبك بنجاح.', null, currentDb) });
           })
           .catch(function (error) {
@@ -794,11 +838,23 @@ function setEnvLanguage(ctx, lang) {
       gkeys: ['pwa-install'],
       handler: function (_event, ctx) {
         var currentDb = ctx.getState();
+
+        // Check if iOS Safari
+        if (isIOSSafari()) {
+          setToast(ctx, {
+            kind: 'info',
+            message: translate('toast.installIOS', 'على iOS: اضغط زر المشاركة ⬆️ ثم اختر "إضافة إلى الشاشة الرئيسية"', null, currentDb)
+          });
+          return;
+        }
+
+        // For other browsers, use the helper
         var helper = global.MishkahAuto && global.MishkahAuto.pwa;
         if (!helper) {
           setToast(ctx, { kind: 'error', message: translate('toast.installError', 'التثبيت غير مدعوم.', null, currentDb) });
           return;
         }
+
         helper.promptInstall()
           .catch(function (error) {
             console.warn('[Brocker PWA] install prompt failed', error);
@@ -810,12 +866,14 @@ function setEnvLanguage(ctx, lang) {
       on: ['click'],
       gkeys: ['pwa-skip'],
       handler: function (_event, ctx) {
-        var helper = global.MishkahAuto && global.MishkahAuto.pwa;
-        if (helper) helper.markInstalled('manual');
+        // Store skip state in sessionStorage instead of marking as installed
+        setPWASkippedThisSession(true);
+
+        // Hide the UI temporarily (for this session only)
         ctx.setState(function (db) {
           return Object.assign({}, db, {
             state: Object.assign({}, db.state, {
-              pwa: Object.assign({}, db.state.pwa, { installed: true, showGate: false })
+              pwa: Object.assign({}, db.state.pwa, { showGate: false })
             })
           });
         });
@@ -857,12 +915,27 @@ function setEnvLanguage(ctx, lang) {
         setEnvLanguage(ctx, next);
       }
     },
+    'ui.logo.home': {
+      on: ['click'],
+      gkeys: ['logo-home'],
+      handler: function (_event, ctx) {
+        ctx.setState(function(db) {
+          return Object.assign({}, db, {
+            state: Object.assign({}, db.state, {
+              activeView: 'home',
+              selectedListingId: null,
+              selectedBrokerId: null
+            })
+          });
+        });
+      }
+    },
     'ui.subscribe.cta': {
       on: ['click'],
       gkeys: ['subscribe-cta'],
       handler: function (event, ctx) {
         if (event) event.preventDefault();
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           return Object.assign({}, db, {
             state: Object.assign({}, db.state, {
               showSubscribeModal: true
@@ -876,7 +949,7 @@ function setEnvLanguage(ctx, lang) {
       gkeys: ['close-subscribe-modal'],
       handler: function (event, ctx) {
         if (event) event.preventDefault();
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           return Object.assign({}, db, {
             state: Object.assign({}, db.state, {
               showSubscribeModal: false
@@ -900,7 +973,7 @@ function setEnvLanguage(ctx, lang) {
 
         // إغلاق النموذج وعرض رسالة نجاح
         var currentDb = ctx.getState();
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           return Object.assign({}, db, {
             state: Object.assign({}, db.state, {
               showSubscribeModal: false,
@@ -913,8 +986,8 @@ function setEnvLanguage(ctx, lang) {
         });
 
         // إخفاء Toast بعد 3 ثوان
-        setTimeout(function() {
-          ctx.setState(function(db) {
+        setTimeout(function () {
+          ctx.setState(function (db) {
             return Object.assign({}, db, {
               state: Object.assign({}, db.state, { toast: null })
             });
@@ -962,7 +1035,7 @@ function setEnvLanguage(ctx, lang) {
       on: ['click'],
       gkeys: ['show-auth-modal'],
       handler: function (_event, ctx) {
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           return Object.assign({}, db, {
             state: Object.assign({}, db.state, {
               auth: Object.assign({}, db.state.auth, {
@@ -980,7 +1053,7 @@ function setEnvLanguage(ctx, lang) {
       on: ['click'],
       gkeys: ['close-auth-modal'],
       handler: function (_event, ctx) {
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           return Object.assign({}, db, {
             state: Object.assign({}, db.state, {
               auth: Object.assign({}, db.state.auth, {
@@ -991,7 +1064,7 @@ function setEnvLanguage(ctx, lang) {
         });
       }
     },
-   'ui.auth.switchMode': {
+    'ui.auth.switchMode': {
       on: ['click'],
       gkeys: ['switch-to-login', 'switch-to-register'],
       handler: function (event, ctx) {
@@ -1003,7 +1076,7 @@ function setEnvLanguage(ctx, lang) {
         if (gkey === 'switch-to-login') mode = 'login';
         else if (gkey === 'switch-to-register') mode = 'register';
         if (!mode) return;
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           return Object.assign({}, db, {
             state: Object.assign({}, db.state, {
               auth: Object.assign({}, db.state.auth, {
@@ -1038,7 +1111,7 @@ function setEnvLanguage(ctx, lang) {
         var field = fieldMap[gkey];
         if (!field) return;
 
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           var update = {};
           update[field] = value;
           return Object.assign({}, db, {
@@ -1093,9 +1166,9 @@ function setEnvLanguage(ctx, lang) {
         // Insert to backend
         if (realtime && typeof realtime.insert === 'function') {
           realtime.insert('users', newUser, { reason: 'registration' })
-            .then(function(result) {
+            .then(function (result) {
               console.log('[Brocker PWA] User registered:', result);
-              ctx.setState(function(db) {
+              ctx.setState(function (db) {
                 return Object.assign({}, db, {
                   state: Object.assign({}, db.state, {
                     auth: Object.assign({}, db.state.auth, {
@@ -1119,13 +1192,13 @@ function setEnvLanguage(ctx, lang) {
                 console.warn('[Brocker PWA] Failed to save auth to localStorage', e);
               }
             })
-            .catch(function(err) {
+            .catch(function (err) {
               console.error('[Brocker PWA] Registration failed:', err);
               setToast(ctx, { kind: 'error', message: translate('auth.registerError', 'فشل إنشاء الحساب، حاول مرة أخرى', null, currentDb) });
             });
         } else {
           // Fallback: save locally
-          ctx.setState(function(db) {
+          ctx.setState(function (db) {
             return Object.assign({}, db, {
               state: Object.assign({}, db.state, {
                 auth: Object.assign({}, db.state.auth, {
@@ -1166,9 +1239,9 @@ function setEnvLanguage(ctx, lang) {
         // For testing: allow default password 123456
         var users = currentDb.data.users || [];
         var identifier = auth.phone_or_email.trim();
-        var user = users.find(function(u) {
+        var user = users.find(function (u) {
           return (u.phone === identifier || u.email === identifier.toLowerCase()) &&
-                 (u.password === auth.login_password || auth.login_password === '123456');
+            (u.password === auth.login_password || auth.login_password === '123456');
         });
 
         if (!user && auth.login_password === '123456') {
@@ -1189,7 +1262,7 @@ function setEnvLanguage(ctx, lang) {
         }
 
         // Login successful
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           return Object.assign({}, db, {
             state: Object.assign({}, db.state, {
               auth: Object.assign({}, db.state.auth, {
@@ -1227,7 +1300,7 @@ function setEnvLanguage(ctx, lang) {
       on: ['click'],
       gkeys: ['navigate-dashboard'],
       handler: function (_event, ctx) {
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           return Object.assign({}, db, {
             state: Object.assign({}, db.state, {
               activeView: 'dashboard',
@@ -1241,7 +1314,7 @@ function setEnvLanguage(ctx, lang) {
       on: ['click'],
       gkeys: ['toggle-profile-menu'],
       handler: function (_event, ctx) {
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           return Object.assign({}, db, {
             state: Object.assign({}, db.state, {
               showProfileMenu: !db.state.showProfileMenu
@@ -1254,7 +1327,7 @@ function setEnvLanguage(ctx, lang) {
       on: ['click'],
       gkeys: ['navigate-inbox'],
       handler: function (_event, ctx) {
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           return Object.assign({}, db, {
             state: Object.assign({}, db.state, {
               activeView: 'inbox',
@@ -1268,7 +1341,7 @@ function setEnvLanguage(ctx, lang) {
       on: ['click'],
       gkeys: ['logout'],
       handler: function (_event, ctx) {
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           return Object.assign({}, db, {
             state: Object.assign({}, db.state, {
               auth: {
@@ -1301,7 +1374,7 @@ function setEnvLanguage(ctx, lang) {
         var gkey = target.getAttribute('data-m-gkey');
         var show = gkey === 'show-broker-modal';
 
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           return Object.assign({}, db, {
             state: Object.assign({}, db.state, {
               showBrokerRegModal: show
@@ -1331,7 +1404,7 @@ function setEnvLanguage(ctx, lang) {
         var field = fieldMap[gkey];
         if (!field) return;
 
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           var update = {};
           update[field] = value;
           return Object.assign({}, db, {
@@ -1390,18 +1463,18 @@ function setEnvLanguage(ctx, lang) {
         // Insert to backend
         if (realtime && typeof realtime.insert === 'function') {
           realtime.insert('brokers', newBroker, { reason: 'broker-registration' })
-            .then(function(result) {
+            .then(function (result) {
               console.log('[Brocker PWA] Broker registered:', result);
 
               // Update user role to broker
               if (realtime.update && user) {
                 realtime.update('users', Object.assign({}, user, { role: 'broker' }), { reason: 'role-update' })
-                  .catch(function(err) {
+                  .catch(function (err) {
                     console.warn('[Brocker PWA] Failed to update user role:', err);
                   });
               }
 
-              ctx.setState(function(db) {
+              ctx.setState(function (db) {
                 return Object.assign({}, db, {
                   state: Object.assign({}, db.state, {
                     showBrokerRegModal: false,
@@ -1422,13 +1495,13 @@ function setEnvLanguage(ctx, lang) {
               });
               setToast(ctx, { kind: 'success', message: translate('broker.registerSuccess', 'تم تسجيل المكتب بنجاح', null, currentDb) });
             })
-            .catch(function(err) {
+            .catch(function (err) {
               console.error('[Brocker PWA] Broker registration failed:', err);
               setToast(ctx, { kind: 'error', message: translate('broker.registerError', 'فشل تسجيل المكتب، حاول مرة أخرى', null, currentDb) });
             });
         } else {
           // Fallback
-          ctx.setState(function(db) {
+          ctx.setState(function (db) {
             return Object.assign({}, db, {
               state: Object.assign({}, db.state, {
                 showBrokerRegModal: false,
@@ -1453,7 +1526,7 @@ function setEnvLanguage(ctx, lang) {
 
         // Check if user needs to register as broker first
         if (show && user && user.role !== 'broker') {
-          ctx.setState(function(db) {
+          ctx.setState(function (db) {
             return Object.assign({}, db, {
               state: Object.assign({}, db.state, {
                 showBrokerRegModal: true
@@ -1464,7 +1537,7 @@ function setEnvLanguage(ctx, lang) {
           return;
         }
 
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           return Object.assign({}, db, {
             state: Object.assign({}, db.state, {
               showListingCreateModal: show
@@ -1498,7 +1571,7 @@ function setEnvLanguage(ctx, lang) {
         var field = fieldMap[gkey];
         if (!field) return;
 
-        ctx.setState(function(db) {
+        ctx.setState(function (db) {
           var update = {};
           update[field] = value;
           return Object.assign({}, db, {
@@ -1518,7 +1591,7 @@ function setEnvLanguage(ctx, lang) {
         var listingCreate = currentDb.state.listingCreate;
         var user = currentDb.state.auth && currentDb.state.auth.user;
         var brokers = currentDb.data.brokers || [];
-        var broker = brokers.find(function(b) { return b.user_id === user.id; });
+        var broker = brokers.find(function (b) { return b.user_id === user.id; });
 
         if (!user) {
           setToast(ctx, { kind: 'error', message: translate('listing.needAuth', 'يجب تسجيل الدخول أولاً', null, currentDb) });
@@ -1586,9 +1659,9 @@ function setEnvLanguage(ctx, lang) {
             realtime.insert('listings', newListing, { reason: 'listing-creation' }),
             realtime.insert('units', newUnit, { reason: 'unit-creation' })
           ])
-            .then(function(results) {
+            .then(function (results) {
               console.log('[Brocker PWA] Listing created:', results);
-              ctx.setState(function(db) {
+              ctx.setState(function (db) {
                 return Object.assign({}, db, {
                   state: Object.assign({}, db.state, {
                     showListingCreateModal: false,
@@ -1609,13 +1682,13 @@ function setEnvLanguage(ctx, lang) {
               });
               setToast(ctx, { kind: 'success', message: translate('listing.createSuccess', 'تم إضافة الوحدة بنجاح', null, currentDb) });
             })
-            .catch(function(err) {
+            .catch(function (err) {
               console.error('[Brocker PWA] Listing creation failed:', err);
               setToast(ctx, { kind: 'error', message: translate('listing.createError', 'فشل إضافة الوحدة، حاول مرة أخرى', null, currentDb) });
             });
         } else {
           // Fallback
-          ctx.setState(function(db) {
+          ctx.setState(function (db) {
             return Object.assign({}, db, {
               state: Object.assign({}, db.state, {
                 showListingCreateModal: false
@@ -2120,7 +2193,7 @@ function setEnvLanguage(ctx, lang) {
                 }
               }, [
                 D.Inputs.Option({ attrs: { value: '' } }, [translate('listing.selectRegion', 'اختر المنطقة', null, db)])
-              ].concat(regions.map(function(region) {
+              ].concat(regions.map(function (region) {
                 return D.Inputs.Option({ attrs: { value: region.id } }, [localized(region, 'name', null, db)]);
               })))
             ])
@@ -2251,35 +2324,35 @@ function setEnvLanguage(ctx, lang) {
     ]);
   }
 
-function PreferencesBar(db) {
+  function PreferencesBar(db) {
     var lang = currentLang(db);
     var themeIcon = themed(db, '☀️', '🌙');
     var langText = lang === 'ar' ? 'EN' : 'AR';
     var isLoading = db.state && db.state.loading;
     var settings = db.data && db.data.appSettings;
-    
+
     // 1. تحديد معرف الإعدادات الصحيح
     var settingsId = (settings && settings.id) ? settings.id : 'brocker-app-config';
 
     // 2. تصحيح جلب اسم البراند باستخدام localized (للبحث في الترجمات أولاً)
-    var brandName = settings && settings.brand_name 
-      ? localized('app_settings', settingsId, 'brand_name', settings.brand_name) 
+    var brandName = settings && settings.brand_name
+      ? localized('app_settings', settingsId, 'brand_name', settings.brand_name)
       : (lang === 'en' ? 'Makateb Aqarat' : 'مكاتب عقارات');
-      
+
     var theme = db.env && db.env.theme;
 
     // 3. تصحيح منطق الشعار (Dark/Light)
     var baseLogo = (settings && settings.brand_logo) ? settings.brand_logo : '/projects/brocker/images/logo.svg';
-    var brandLogo = theme === 'dark' 
-      ? baseLogo.replace(/(\.svg|\.png|\.jpg)$/i, '-light$1') 
+    var brandLogo = theme === 'dark'
+      ? baseLogo.replace(/(\.svg|\.png|\.jpg)$/i, '-light$1')
       : baseLogo;
 
     // استخدام الاسم المترجم للعرض
-    var displayName = brandName; 
+    var displayName = brandName;
 
     return D.Containers.Div({ attrs: { class: tw('fixed top-0 left-0 right-0 z-40 backdrop-blur-xl border-b transition-all duration-300', themed(db, 'bg-slate-950/90 border-white/5', 'bg-white/90 border-slate-200')) } }, [
       D.Containers.Div({ attrs: { class: 'mx-auto flex max-w-xl items-center justify-between px-4 py-3' } }, [
-        D.Containers.Div({ attrs: { class: 'flex items-center gap-2' } }, [
+        D.Forms.Button({ attrs: { type: 'button', class: 'flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity', 'data-m-gkey': 'logo-home' } }, [
           D.Media.Img({ attrs: { src: brandLogo, alt: displayName, class: 'h-12 w-12 object-contain' } }),
           D.Text.Span({ attrs: { class: tw('text-sm font-bold tracking-tight', themed(db, 'text-white', 'text-slate-900')) } }, [displayName])
         ]),
@@ -2357,19 +2430,19 @@ function PreferencesBar(db) {
     ]);
   }
 
-function FooterSection(db) {
+  function FooterSection(db) {
     var settings = db.data && db.data.appSettings;
     // استخدام المعرف الصحيح من البيانات أو القيمة الافتراضية المعروفة في ملف JSON
     var settingsId = (settings && settings.id) ? settings.id : 'brocker-app-config';
-    
-    var brandName = settings && settings.brand_name 
-      ? localized('app_settings', settingsId, 'brand_name', settings.brand_name) 
-      : 'Makateb Aqarat';   
+
+    var brandName = settings && settings.brand_name
+      ? localized('app_settings', settingsId, 'brand_name', settings.brand_name)
+      : 'Makateb Aqarat';
 
     var theme = db.env && db.env.theme;
     var baseLogo = (settings && settings.brand_logo) ? settings.brand_logo : '/projects/brocker/images/logo.svg';
-    var brandLogo = theme === 'dark' 
-      ? baseLogo.replace(/(\.svg|\.png|\.jpg)$/i, '-light$1') 
+    var brandLogo = theme === 'dark'
+      ? baseLogo.replace(/(\.svg|\.png|\.jpg)$/i, '-light$1')
       : baseLogo;
 
     var heroTitle = settings && settings.hero_title
@@ -2380,10 +2453,14 @@ function FooterSection(db) {
       ? localized('app_settings', settingsId, 'hero_subtitle', settings.hero_subtitle)
       : translate('footer.defaultHeroSubtitle', 'Search, manage, and track your client requests easily.', null, db);
 
-    return D.Containers.Footer({ attrs: { class: tw(
-      'mt-12 rounded-3xl border p-6 space-y-6 shadow-lg transition-colors',
-      themed(db, 'border-white/5 bg-gradient-to-br from-slate-900/85 to-slate-950/90 text-white', 'border-slate-200 bg-white text-slate-900')
-    ) } }, [
+    return D.Containers.Footer({
+      attrs: {
+        class: tw(
+          'mt-12 rounded-3xl border p-6 space-y-6 shadow-lg transition-colors',
+          themed(db, 'border-white/5 bg-gradient-to-br from-slate-900/85 to-slate-950/90 text-white', 'border-slate-200 bg-white text-slate-900')
+        )
+      }
+    }, [
       // شعار واسم المنصة
       D.Containers.Div({ attrs: { class: 'flex items-center gap-3' } }, [
         D.Media.Img({ attrs: { src: brandLogo, alt: brandName, class: 'h-12 w-12 object-contain' } }),
@@ -2517,12 +2594,12 @@ function FooterSection(db) {
     var user = db.state.auth && db.state.auth.user;
 
     // فلترة الاستفسارات الخاصة بالمستخدم الحالي فقط
-    var userInquiries = user ? inquiries.filter(function(inq) {
+    var userInquiries = user ? inquiries.filter(function (inq) {
       return inq.user_id === user.id;
     }) : [];
 
     // ترتيب حسب التاريخ (الأحدث أولاً)
-    var sorted = userInquiries.slice().sort(function(a, b) {
+    var sorted = userInquiries.slice().sort(function (a, b) {
       return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     });
 
@@ -2536,17 +2613,17 @@ function FooterSection(db) {
 
         sorted.length === 0 ? D.Containers.Div({ attrs: { class: tw('text-center py-12', themed(db, 'text-slate-400', 'text-slate-600')) } }, [
           D.Text.P({}, [translate('inbox.empty', 'لم ترسل أي استفسارات بعد', null, db)])
-        ]) : D.Containers.Div({ attrs: { class: 'space-y-3' } }, sorted.map(function(inquiry) {
-          var listing = (db.data && db.data.listings) ? db.data.listings.find(function(l) { return l.id === inquiry.listing_id; }) : null;
+        ]) : D.Containers.Div({ attrs: { class: 'space-y-3' } }, sorted.map(function (inquiry) {
+          var listing = (db.data && db.data.listings) ? db.data.listings.find(function (l) { return l.id === inquiry.listing_id; }) : null;
           var status = inquiry.status || 'new';
           var statusLabel = status === 'new' ? translate('inquiry.status.new', 'جديد', null, db)
             : status === 'contacted' ? translate('inquiry.status.contacted', 'تم التواصل', null, db)
-            : status === 'closed' ? translate('inquiry.status.closed', 'مغلق', null, db)
-            : status;
+              : status === 'closed' ? translate('inquiry.status.closed', 'مغلق', null, db)
+                : status;
 
           var statusColor = status === 'new' ? themed(db, 'bg-emerald-500/20 text-emerald-400', 'bg-emerald-100 text-emerald-700')
             : status === 'contacted' ? themed(db, 'bg-blue-500/20 text-blue-400', 'bg-blue-100 text-blue-700')
-            : themed(db, 'bg-slate-500/20 text-slate-400', 'bg-slate-100 text-slate-700');
+              : themed(db, 'bg-slate-500/20 text-slate-400', 'bg-slate-100 text-slate-700');
 
           return D.Containers.Div({ attrs: { key: inquiry.id, class: tw('rounded-2xl border p-4 space-y-3', themed(db, 'border-white/10 bg-slate-800/40', 'border-slate-200 bg-slate-50')) } }, [
             D.Containers.Div({ attrs: { class: 'flex items-start justify-between gap-3' } }, [
@@ -2588,11 +2665,11 @@ function FooterSection(db) {
       highlights.length ? D.Containers.Div({ attrs: { class: 'flex flex-wrap gap-2 text-xs' } }, highlights.map(function (text) { return Chip(text); })) : null,
       features.length
         ? D.Containers.Div({ attrs: { class: tw('text-sm', themed(db, 'text-slate-300', 'text-slate-700')) } }, [
-            D.Text.Strong({ attrs: { class: tw(themed(db, 'text-slate-100', 'text-slate-900')) } }, [translate('listing.features', 'مميزات الوحدة:', null, db)]),
-            D.Lists.Ul({ attrs: { class: 'mt-2 space-y-1' } }, features.map(function (name) {
-              return D.Lists.Li({ attrs: { class: tw(themed(db, 'text-slate-300', 'text-slate-700')) } }, [name]);
-            }))
-          ])
+          D.Text.Strong({ attrs: { class: tw(themed(db, 'text-slate-100', 'text-slate-900')) } }, [translate('listing.features', 'مميزات الوحدة:', null, db)]),
+          D.Lists.Ul({ attrs: { class: 'mt-2 space-y-1' } }, features.map(function (name) {
+            return D.Lists.Li({ attrs: { class: tw(themed(db, 'text-slate-300', 'text-slate-700')) } }, [name]);
+          }))
+        ])
         : null,
       broker ? BrokerBadge(db, broker) : null,
       D.Containers.Div({ attrs: { class: tw('flex items-center justify-between text-sm pt-2 border-t', themed(db, 'border-white/5', 'border-slate-200')) } }, [
@@ -2643,7 +2720,7 @@ function FooterSection(db) {
       ])
     ]);
   }
-  
+
   function BrokerGrid(db, brokers) {
     if (!brokers.length) {
       return D.Containers.Div({ attrs: { class: tw('text-center text-sm', themed(db, 'text-slate-400', 'text-slate-600')) } }, [translate('broker.empty', 'لا يوجد وسطاء حالياً.', null, db)]);
@@ -2685,9 +2762,9 @@ function FooterSection(db) {
       ]),
       listingModels.length
         ? D.Containers.Div({ attrs: { class: 'space-y-2' } }, [
-            D.Text.H3({ attrs: { class: 'text-base font-semibold text-white' } }, [translate('broker.unitsTitle', 'وحدات الوسيط', null, db)]),
-            LatestListingsGrid(db, listingModels)
-          ])
+          D.Text.H3({ attrs: { class: 'text-base font-semibold text-white' } }, [translate('broker.unitsTitle', 'وحدات الوسيط', null, db)]),
+          LatestListingsGrid(db, listingModels)
+        ])
         : D.Text.P({ attrs: { class: 'text-sm text-slate-400' } }, [translate('broker.noUnits', 'لا توجد وحدات مرتبطة بهذا الوسيط حالياً.', null, db)])
     ]);
   }
@@ -2802,11 +2879,21 @@ function FooterSection(db) {
   function InstallBanner(db) {
     var pwa = db.state.pwa;
     if (!pwa) return null;
+
+    var isIOS = isIOSSafari();
+    var installText = isIOS
+      ? translate('pwa.installTitleIOS', 'ثبّت التطبيق يدوياً', null, db)
+      : translate('pwa.installTitle', 'حوّل المنصة إلى تطبيق', null, db);
+
+    var descText = isIOS
+      ? translate('pwa.installDescIOS', 'اضغط زر المشاركة ⬆️ ثم اختر "إضافة إلى الشاشة الرئيسية"', null, db)
+      : (pwa.message || translate('pwa.installDesc', 'ثبّت التطبيق لتحصل على تجربة أسرع وإشعارات فورية.', null, db));
+
     return D.Containers.Div({ attrs: { class: tw('fixed bottom-20 inset-x-0 mx-auto w-full max-w-md rounded-3xl border p-4 text-sm shadow-2xl z-40 space-y-2', themed(db, 'border-white/10 bg-slate-900/80 text-white shadow-black/50', 'border-slate-300 bg-white text-slate-900 shadow-slate-500/30')) } }, [
-      D.Text.Strong({ attrs: { class: 'text-base' } }, [translate('pwa.installTitle', 'حوّل المنصة إلى تطبيق', null, db)]),
-      D.Text.P({ attrs: { class: tw('text-xs', themed(db, 'text-slate-400', 'text-slate-600')) } }, [pwa.message || translate('pwa.installDesc', 'ثبّت التطبيق لتحصل على تجربة أسرع وإشعارات فورية.', null, db)]),
+      D.Text.Strong({ attrs: { class: 'text-base' } }, [installText]),
+      D.Text.P({ attrs: { class: tw('text-xs', themed(db, 'text-slate-400', 'text-slate-600')) } }, [descText]),
       D.Containers.Div({ attrs: { class: 'flex gap-2' } }, [
-        D.Forms.Button({ attrs: { type: 'button', class: tw('flex-1 rounded-full py-2 text-sm font-semibold text-white', themed(db, 'bg-emerald-500', 'bg-emerald-600')), 'data-m-gkey': 'pwa-install' } }, [translate('actions.install', 'تثبيت', null, db)]),
+        D.Forms.Button({ attrs: { type: 'button', class: tw('flex-1 rounded-full py-2 text-sm font-semibold text-white', themed(db, 'bg-emerald-500', 'bg-emerald-600')), 'data-m-gkey': 'pwa-install' } }, [isIOS ? translate('actions.showInstructions', 'التعليمات', null, db) : translate('actions.install', 'تثبيت', null, db)]),
         D.Forms.Button({ attrs: { type: 'button', class: tw('flex-1 rounded-full border py-2 text-sm', themed(db, 'border-white/20 text-slate-200', 'border-slate-300 text-slate-700')), 'data-m-gkey': 'pwa-skip' } }, [translate('actions.skip', 'لاحقاً', null, db)])
       ])
     ]);
@@ -2814,12 +2901,28 @@ function FooterSection(db) {
 
   function InstallGate(db) {
     var pwa = db.state.pwa;
+    var isIOS = isIOSSafari();
+
     return D.Containers.Div({ attrs: { class: tw('fixed inset-0 z-50 grid place-items-center backdrop-blur', themed(db, 'bg-slate-950/95', 'bg-white/95')) } }, [
       D.Containers.Div({ attrs: { class: tw('max-w-sm space-y-4 rounded-3xl border p-6 text-center', themed(db, 'border-white/10 bg-slate-900/80 text-white', 'border-slate-300 bg-white text-slate-900')) } }, [
         D.Text.H2({ attrs: { class: 'text-xl font-semibold' } }, [translate('pwa.installRequired', 'تثبيت التطبيق مطلوب', null, db)]),
-        D.Text.P({ attrs: { class: tw('text-sm', themed(db, 'text-slate-300', 'text-slate-600')) } }, [pwa && pwa.message ? pwa.message : translate('pwa.installRequiredDesc', 'لتجربة كاملة على الجوال قم بتثبيت التطبيق كـ PWA.', null, db)]),
-        D.Forms.Button({ attrs: { type: 'button', class: tw('w-full rounded-full py-2 text-sm font-semibold text-white', themed(db, 'bg-emerald-500', 'bg-emerald-600')), 'data-m-gkey': 'pwa-install' } }, [translate('actions.installNow', 'تثبيت الآن', null, db)]),
-        D.Forms.Button({ attrs: { type: 'button', class: tw('w-full rounded-full border py-2 text-sm', themed(db, 'border-white/20 text-slate-200', 'border-slate-300 text-slate-700')), 'data-m-gkey': 'pwa-skip' } }, [translate('actions.skip', 'تخطي للاختبار', null, db)])
+
+        isIOS ? D.Containers.Div({ attrs: { class: 'space-y-2' } }, [
+          D.Text.P({ attrs: { class: tw('text-sm', themed(db, 'text-slate-300', 'text-slate-600')) } }, [
+            translate('pwa.installIOSInstructions', 'على iOS Safari:', null, db)
+          ]),
+          D.Containers.Ol({ attrs: { class: tw('text-sm text-right list-decimal list-inside space-y-1', themed(db, 'text-slate-300', 'text-slate-600')) } }, [
+            D.Containers.Li({}, [translate('pwa.iosStep1', '1. اضغط زر المشاركة (⬆️)', null, db)]),
+            D.Containers.Li({}, [translate('pwa.iosStep2', '2. اختر "إضافة إلى الشاشة الرئيسية"', null, db)]),
+            D.Containers.Li({}, [translate('pwa.iosStep3', '3. اضغط "إضافة"', null, db)])
+          ])
+        ]) : D.Text.P({ attrs: { class: tw('text-sm', themed(db, 'text-slate-300', 'text-slate-600')) } }, [
+          pwa && pwa.message ? pwa.message : translate('pwa.installRequiredDesc', 'لتجربة كاملة على الجوال قم بتثبيت التطبيق كـ PWA.', null, db)
+        ]),
+
+        isIOS ? null : D.Forms.Button({ attrs: { type: 'button', class: tw('w-full rounded-full py-2 text-sm font-semibold text-white', themed(db, 'bg-emerald-500', 'bg-emerald-600')), 'data-m-gkey': 'pwa-install' } }, [translate('actions.installNow', 'تثبيت الآن', null, db)]),
+
+        D.Forms.Button({ attrs: { type: 'button', class: tw('w-full rounded-full border py-2 text-sm', themed(db, 'border-white/20 text-slate-200', 'border-slate-300 text-slate-700')), 'data-m-gkey': 'pwa-skip' } }, [translate('actions.skip', isIOS ? 'تخطي للتصفح' : 'لاحقاً', null, db)])
       ])
     ]);
   }
@@ -2865,14 +2968,14 @@ function FooterSection(db) {
   function LoadingSection(db) {
     return D.Containers.Section({ attrs: { class: 'flex min-h-screen items-center justify-center text-slate-400' } }, [translate('misc.loading', 'جارِ تحميل بيانات الوسطاء...', null, db)]);
   }
-function HeaderSection(db) {
+  function HeaderSection(db) {
     var settings = db && db.data ? db.data.appSettings : null;
     var settingsId = (settings && settings.id) ? settings.id : 'brocker-app-config';
 
     if (!settings) {
       return D.Containers.Header({ attrs: { class: tw('space-y-1 text-center', themed(db, 'text-white', 'text-slate-900')) } }, [
         D.Text.H1({ attrs: { class: 'text-2xl font-semibold' } }, [
-            translate('header.defaultTitle', 'Makateb Aqarat', null, db)
+          translate('header.defaultTitle', 'Makateb Aqarat', null, db)
         ])
       ]);
     }
@@ -2881,22 +2984,22 @@ function HeaderSection(db) {
     // هذا يضمن البحث في جدول الترجمة أولاً
     var brandName = localized('app_settings', settingsId, 'brand_name', settings.brand_name || 'مكاتب عقارات');
     var brandTagline = localized('app_settings', settingsId, 'tagline', settings.tagline || 'منصة ذكية لإدارة مكاتب العقارات');
-    
+
     var theme = db.env && db.env.theme;
     var baseLogo = (settings && settings.brand_logo) ? settings.brand_logo : '/projects/brocker/images/logo.svg';
-    var brandLogo = theme === 'dark' 
-      ? baseLogo.replace(/(\.svg|\.png|\.jpg)$/i, '-light$1') 
+    var brandLogo = theme === 'dark'
+      ? baseLogo.replace(/(\.svg|\.png|\.jpg)$/i, '-light$1')
       : baseLogo;
-      
+
     var logoSrc = brandLogo;
     var logo = logoSrc
       ? D.Media.Img({
-          attrs: {
-            src: logoSrc,
-            alt: brandName || 'Brocker',
-            class: tw('mx-auto h-12 w-12 sm:h-14 sm:w-14 rounded-2xl border p-2 object-contain shadow-lg', themed(db, 'border-emerald-400/20 bg-slate-900/60 shadow-emerald-500/10', 'border-emerald-400/30 bg-white/80 shadow-emerald-500/20'))
-          }
-        })
+        attrs: {
+          src: logoSrc,
+          alt: brandName || 'Brocker',
+          class: tw('mx-auto h-12 w-12 sm:h-14 sm:w-14 rounded-2xl border p-2 object-contain shadow-lg', themed(db, 'border-emerald-400/20 bg-slate-900/60 shadow-emerald-500/10', 'border-emerald-400/30 bg-white/80 shadow-emerald-500/20'))
+        }
+      })
       : null;
 
     return D.Containers.Header({ attrs: { class: tw('space-y-2 text-center sm:space-y-3', themed(db, 'text-white', 'text-slate-900')) } }, [
@@ -2906,8 +3009,8 @@ function HeaderSection(db) {
       ]),
       brandTagline
         ? D.Text.P({ attrs: { class: tw('text-sm leading-6 sm:text-base', themed(db, 'text-slate-300', 'text-slate-600')) } }, [
-            brandTagline
-          ])
+          brandTagline
+        ])
         : null
     ]);
   }
@@ -2924,10 +3027,14 @@ function HeaderSection(db) {
     // لو مافيش slides، نعرض null (مافيش hero section)
     if (!cards.length) return null;
 
-    return D.Containers.Section({ attrs: { class: tw(
-      'rounded-3xl border p-4 sm:p-6 lg:p-7 space-y-3 sm:space-y-4 shadow-lg shadow-emerald-900/20 transition-colors',
-      themed({ env: activeEnv() }, 'border-white/5 bg-gradient-to-br from-slate-900/85 to-slate-950/90', 'border-slate-200 bg-white')
-    ) } }, [
+    return D.Containers.Section({
+      attrs: {
+        class: tw(
+          'rounded-3xl border p-4 sm:p-6 lg:p-7 space-y-3 sm:space-y-4 shadow-lg shadow-emerald-900/20 transition-colors',
+          themed({ env: activeEnv() }, 'border-white/5 bg-gradient-to-br from-slate-900/85 to-slate-950/90', 'border-slate-200 bg-white')
+        )
+      }
+    }, [
       D.Containers.Div({ attrs: { class: tw('grid gap-3 sm:gap-4 md:grid-cols-3') } }, cards)
     ]);
   }
@@ -2941,10 +3048,14 @@ function HeaderSection(db) {
     } else if (slide.media_url) {
       media = D.Media.Img({ attrs: { src: slide.media_url, alt: slide.title || 'slide', class: 'h-36 w-full rounded-2xl object-cover sm:h-32', loading: 'lazy' } });
     }
-    return D.Containers.Article({ attrs: { key: slide.id, class: tw(
-      'space-y-3 sm:space-y-4 rounded-2xl border p-4 text-white shadow-md shadow-black/20 transition-colors',
-      themed({ env: activeEnv() }, 'border-white/10 bg-slate-950/50', 'border-slate-200 bg-white/80 text-slate-900')
-    ), 'data-m-gkey': 'hero-slide', 'data-cta-action': slide.cta_action || '', 'data-media-url': slide.media_url || '' } }, [
+    return D.Containers.Article({
+      attrs: {
+        key: slide.id, class: tw(
+          'space-y-3 sm:space-y-4 rounded-2xl border p-4 text-white shadow-md shadow-black/20 transition-colors',
+          themed({ env: activeEnv() }, 'border-white/10 bg-slate-950/50', 'border-slate-200 bg-white/80 text-slate-900')
+        ), 'data-m-gkey': 'hero-slide', 'data-cta-action': slide.cta_action || '', 'data-media-url': slide.media_url || ''
+      }
+    }, [
       media,
       D.Containers.Div({ attrs: { class: 'space-y-1' } }, [
         D.Text.Strong({ attrs: { class: 'text-sm sm:text-base' } }, [localized('hero_slides', slide.id, 'title', slide.title || 'عرض مميز')]),
@@ -2954,9 +3065,9 @@ function HeaderSection(db) {
       ]),
       slide.cta_label
         ? D.Text.Span({ attrs: { class: tw('inline-flex items-center gap-1 text-[11px] font-semibold', themed({ env: activeEnv() }, 'text-emerald-300', 'text-emerald-600')) } }, [
-            '•',
-            localized('hero_slides', slide.id, 'cta_label', slide.cta_label)
-          ])
+          '•',
+          localized('hero_slides', slide.id, 'cta_label', slide.cta_label)
+        ])
         : null
     ]);
   }
@@ -3380,12 +3491,23 @@ function HeaderSection(db) {
   function setupPwaHooks(app) {
     if (!app) return;
     var helper = global.MishkahAuto && global.MishkahAuto.pwa;
+
+    // Check if skipped this session
+    var skippedThisSession = isPWASkippedThisSession();
+
     if (helper) {
-      updatePwaState(app, { installed: helper.isInstalled(), storageKey: helper.storageKey });
+      var isInstalled = helper.isInstalled();
+      updatePwaState(app, {
+        installed: isInstalled,
+        storageKey: helper.storageKey,
+        showGate: false  // Will be recalculated based on installRequired
+      });
+
       helper.onBeforeInstallPrompt(function () {
         updatePwaState(app, { canPrompt: helper.hasPendingPrompt ? helper.hasPendingPrompt() : true });
       });
     }
+
     fetchPwaConfig().then(function (payload) {
       if (!payload) return;
       if (payload.settings) {
@@ -3393,8 +3515,17 @@ function HeaderSection(db) {
         syncPwaFromSettings(payload.settings);
       }
       updatePwaState(app, { manifestUrl: buildManifestUrl() });
+
+      // After settings are loaded, check if we should show gate
+      // Only hide if actually installed OR skipped this session
+      var currentState = app.database && app.database.state && app.database.state.pwa;
+      if (currentState && currentState.installRequired && !currentState.installed && !skippedThisSession) {
+        updatePwaState(app, { showGate: true });
+      }
     });
+
     bindUiEvent(global, 'appinstalled', function () {
+      setPWASkippedThisSession(false);  // Clear session skip on actual install
       updatePwaState(app, { installed: true, showGate: false });
     });
   }
@@ -3433,7 +3564,7 @@ function HeaderSection(db) {
     }
 
     // delay قصير قبل إعادة الاتصال
-    setTimeout(function() {
+    setTimeout(function () {
       console.log('[Brocker PWA] Bootstrapping realtime with lang:', lang);
       bootstrapRealtime(targetApp, lang);
     }, 300);
@@ -3558,11 +3689,11 @@ function HeaderSection(db) {
     var readyHelper = global.MishkahAuto && typeof global.MishkahAuto.ready === 'function'
       ? global.MishkahAuto.ready.bind(global.MishkahAuto)
       : function (cb) {
-          return Promise.resolve().then(function () {
-            if (typeof cb === 'function') cb(M);
-            return M;
-          });
-        };
+        return Promise.resolve().then(function () {
+          if (typeof cb === 'function') cb(M);
+          return M;
+        });
+      };
     return readyHelper(function (readyM) {
       if (!readyM || !readyM.app || typeof readyM.app.createApp !== 'function') {
         throw new Error('mishkah-core-not-ready');
