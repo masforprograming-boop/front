@@ -19,11 +19,13 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="../lib/mishkah-indexeddb.js"></script>
 
+    <!-- Load Wiki Data -->
     <script src="wiki-data.js"></script>
+    <script src="wiki-counter.js"></script>
+    <script src="wiki-cps.js"></script>
 
     <!-- Load Examples Data -->
     <script src="example-counter.js"></script>
-
     <script src="example-cps.js"></script>
 
     <!-- Load Application Logic -->
@@ -41,11 +43,14 @@
             padding: 0;
             overflow: hidden;
             font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--background);
+            color: var(--foreground);
         }
 
         #app {
             height: 100vh;
             width: 100vw;
+            background-color: var(--background);
         }
 
         /* Custom Scrollbar */
@@ -70,6 +75,7 @@
         /* Markdown styles */
         .prose {
             max-width: 65ch;
+            color: var(--foreground);
         }
 
         .prose h1 {
@@ -78,6 +84,7 @@
             margin-top: 0;
             margin-bottom: 0.8888889em;
             line-height: 1.1111111;
+            color: var(--foreground);
         }
 
         .prose h2 {
@@ -86,6 +93,7 @@
             margin-top: 2em;
             margin-bottom: 1em;
             line-height: 1.3333333;
+            color: var(--foreground);
         }
 
         .prose h3 {
@@ -94,12 +102,14 @@
             margin-top: 1.6em;
             margin-bottom: 0.6em;
             line-height: 1.6;
+            color: var(--foreground);
         }
 
         .prose p {
             margin-top: 1.25em;
             margin-bottom: 1.25em;
             line-height: 1.75;
+            color: var(--foreground);
         }
 
         .prose ul,
@@ -116,10 +126,12 @@
 
         .prose strong {
             font-weight: 600;
+            color: var(--foreground);
         }
 
         .prose code {
             background: var(--muted);
+            color: var(--foreground);
             padding: 0.2em 0.4em;
             border-radius: 0.25rem;
             font-size: 0.875em;
@@ -127,6 +139,7 @@
 
         .prose pre {
             background: var(--muted);
+            color: var(--foreground);
             padding: 1em;
             border-radius: 0.5rem;
             overflow-x: auto;
@@ -137,21 +150,16 @@
             background: transparent;
             padding: 0;
         }
+
+        .prose a {
+            color: var(--primary);
+            text-decoration: underline;
+        }
+
+        .prose a:hover {
+            color: var(--primary-foreground);
+        }
     </style>
-</head>
-
-<body>
-    <div id="app"></div>
-</body>
-
-</html>
-}
-
-.prose pre code {
-background: transparent;
-padding: 0;
-}
-</style>
 </head>
 
 <body>

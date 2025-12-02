@@ -61,7 +61,7 @@ Perfect for comparing framework approaches!`,
 4. تفاعلية واجهة المستخدم
 
 مثالي لمقارنة طرق الأطر المختلفة!`
-      },
+      }, wikiId: 'counter-basics',
       implementations: [
         {
           framework: 'vanilla'
@@ -766,15 +766,5 @@ app.mount('#app');
     }
   ];
 
-  // Framework mapping
-  window.FRAMEWORKS = {
-    vanilla: { name: { en: 'Vanilla JS', ar: 'JavaScript النقي' }, lang: 'html' },
-    jquery: { name: { en: 'jQuery', ar: 'jQuery' }, lang: 'html' },
-    vue: { name: { en: 'Vue.js', ar: 'Vue.js' }, lang: 'html' },
-    react: { name: { en: 'React', ar: 'React' }, lang: 'html' },
-    'mishkah-dsl': { name: { en: 'Mishkah DSL', ar: 'Mishkah DSL' }, lang: 'javascript' },
-    'mishkah-htmlx': { name: { en: 'Mishkah HTMLx', ar: 'Mishkah HTMLx' }, lang: 'html' }
-  };
 
-  console.log('✅ Examples loaded:', window.EXAMPLES.length, 'examples');
 })();

@@ -18,7 +18,7 @@
         "readme": {
             "en": "# CPS Challenge (Clicks Per Second)\n\n## Overview\nA fun mini-game to test how fast you can click in a given time.\n\n## Features\n- ⏱️ **Timer**: Set your challenge duration.\n- 👆 **Clicker**: Smash the button!\n- 🏆 **Score**: Calculates your CPS automatically.\n- 🚫 **Anti-Cheat**: Button disabled when not running.",
             "ar": "# تحدي النقرات (CPS)\n\n## نظرة عامة\nلعبة ممتعة لاختبار سرعة النقر لديك في وقت محدد.\n\n## المميزات\n- ⏱️ **المؤقت**: حدد مدة التحدي.\n- 👆 **الزر**: اضغط بأقصى سرعة!\n- 🏆 **النتيجة**: يحسب معدل النقرات في الثانية تلقائياً.\n- 🚫 **منع الغش**: الزر معطل عندما لا يكون التحدي نشطاً."
-        },
+        }, wikiId: 'cps-challenge-basics',
         "implementations": [
             {
                 "framework": "mishkah-dsl",
