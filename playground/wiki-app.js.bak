@@ -270,31 +270,15 @@
                 return { ...s, expandedNodes: allParentIds };
             }),
             collapseAll: () => appInstance.setState(s => ({ ...s, expandedNodes: new Set() })),
-            edit: async (id) => {
-                console.log('[WikiApp] Entering edit mode for ID:', id);
-
-                if (!id) {
-                    console.warn('[WikiApp] No active article ID provided for edit');
-                    return;
-                }
-
-                try {
-                    // Load fresh data from IndexedDB (Source of Truth)
-                    let article = null;
-                    if (WikiService.adapter) {
-                        console.log('[WikiApp] Fetching fresh data from DB for:', id);
-                        const record = await WikiService.adapter.load(`article:${id}`);
-                        if (record && record.data) {
-                            article = record.data;
-                        }
-                    }
-
+            edit: () => {
+                console.log('[WikiApp] Entering edit mode');
+                appInstance.setState(s => {
+                    const article = s.articles.find(a => a.id === s.activeId);
                     if (!article) {
-                        console.error('[WikiApp] Article not found in DB for edit:', id);
-                        return;
+                        return { ...s, viewMode: 'edit', _formData: {} };
                     }
 
-                    // Pre-fill form data with FRESH DB values
+                    // Pre-fill form data with current article values
                     const formData = {
                         id: article.id,
                         title_en: article.title.en || '',
@@ -308,12 +292,9 @@
                         sort: article.sort || 0
                     };
 
-                    console.log('[WikiApp] Pre-filled form data from DB:', formData);
-                    appInstance.setState(s => ({ ...s, viewMode: 'edit', activeId: id, _formData: formData }));
-
-                } catch (e) {
-                    console.error('[WikiApp] Error loading article for edit:', e);
-                }
+                    console.log('[WikiApp] Pre-filled form data:', formData);
+                    return { ...s, viewMode: 'edit', _formData: formData };
+                });
             },
             cancelEdit: () => appInstance.setState(s => ({ ...s, viewMode: 'view' })),
             saveArticle: async (article, user) => {
@@ -342,69 +323,6 @@
             exportData: async () => {
                 const json = await WikiService.exportJSON();
                 U.IO.download(json, `wiki-backup-${Date.now()}.json`, 'application/json');
-            }, resetData: async () => {
-                if (!confirm('سيتم دمج البيانات الحالية مع البيانات الأصلية (Cloud/Seed). هل أنت متأكد؟')) return;
-
-                appInstance.setState(s => ({ ...s, loading: true }));
-
-                try {
-                    // 1. Backup current DB to Map (to prevent duplicates and allow updates)
-                    const currentArticles = await WikiService.getAll();
-                    const mergedMap = new Map();
-
-                    // Add current articles to map
-                    currentArticles.forEach(a => mergedMap.set(a.id, a));
-
-                    // 2. Get Cloud/Seed Data
-                    const cloudData = window.codewikidb || []; // Assuming window.codewikidb is your source
-
-                    // 3. Merge: Update existing IDs and Add new ones
-                    cloudData.forEach(cloudArticle => {
-                        // This will overwrite if ID exists (Update), or add if it doesn't (New)
-                        // If you want to keep local changes for existing IDs, check if mergedMap.has(cloudArticle.id) first.
-                        // But usually "Reset/Update" implies taking the source of truth for those IDs.
-                        // Here we overwrite with cloud data for these IDs as requested "Update existing".
-                        mergedMap.set(cloudArticle.id, cloudArticle);
-                    });
-
-                    // 4. Save all merged articles back to DB
-                    // We don't clear the DB, so "Old ones" not in cloudData remain untouched in DB 
-                    // (unless we explicitly want to save the Map content which we do).
-                    // Since WikiService.save updates by ID, we just iterate and save.
-
-                    const finalArticles = Array.from(mergedMap.values());
-
-                    // Optional: Clear DB first if you want to ensure *only* the merged list exists 
-                    // (cleaner but "leaves old ones" implies we just want to ensure the map content is there).
-                    // If we don't clear, and just save, it's safer.
-
-                    for (const article of finalArticles) {
-                        await WikiService.save(article, 'System Merge');
-                    }
-
-                    // 5. Refresh State
-                    const updatedArticles = await WikiService.getAll();
-                    appInstance.setState(s => ({
-                        ...s,
-                        articles: updatedArticles,
-                        loading: false,
-                        activeId: updatedArticles.length > 0 ? updatedArticles[0].id : null,
-                        viewMode: 'view'
-                    }));
-
-                    alert('تم تحديث البيانات ودمجها بنجاح!');
-
-                } catch (e) {
-                    console.error('Reset failed:', e);
-                    appInstance.setState(s => ({ ...s, loading: false }));
-                    alert('حدث خطأ أثناء التحديث.');
-                }
-            },
-
-            refreshData: async () => {
-                appInstance.setState(s => ({ ...s, loading: true }));
-                const articles = await WikiService.getAll();
-                appInstance.setState(s => ({ ...s, articles, loading: false }));
             },
             search: (q) => appInstance.setState(s => ({ ...s, searchQuery: q }))
         };
@@ -418,16 +336,6 @@
 
         // Wiki Orders (Event Handlers)
         const orders = {
-            'wiki:data:reset': {
-                on: ['click'],
-                gkeys: ['wiki:data:reset'],
-                handler: (e, ctx) => actions.resetData()
-            },
-            'wiki:data:refresh': {
-                on: ['click'],
-                gkeys: ['wiki:data:refresh'],
-                handler: (e, ctx) => actions.refreshData()
-            },
             'wiki:sidebar:toggle': {
                 on: ['click'],
                 gkeys: ['wiki:sidebar:toggle'],
@@ -478,10 +386,11 @@
                 on: ['click'],
                 gkeys: ['wiki:article:new'],
                 handler: (e, ctx) => actions.createArticle()
-            }, 'wiki:article:edit': {
+            },
+            'wiki:article:edit': {
                 on: ['click'],
                 gkeys: ['wiki:article:edit'],
-                handler: (e, ctx) => actions.edit(ctx.getState().activeId)
+                handler: (e, ctx) => actions.edit()
             },
             'wiki:search': {
                 on: ['input'],
